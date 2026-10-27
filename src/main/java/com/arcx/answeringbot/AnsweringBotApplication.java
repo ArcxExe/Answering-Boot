@@ -1,5 +1,6 @@
 package com.arcx.answeringbot;
 
+import com.arcx.answeringbot.gemini.service.GeminiService;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
@@ -7,7 +8,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class AnsweringBotApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(AnsweringBotApplication.class, args);
+		var context = SpringApplication.run(AnsweringBotApplication.class, args);
+		GeminiService geminiService = context.getBean(GeminiService.class);
+
+		System.out.println(geminiService.ask("Привет"));
 	}
 
 }
