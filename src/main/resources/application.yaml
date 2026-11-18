@@ -3,16 +3,32 @@ spring:
     name: AnsweringBot
   config:
     import: "optional:file:.env[.properties]"
+  ai:
+    chat:
+      client:
+        enabled: false
+    openai:
+      base-url: https://openrouter.ai/api
+      api-key: ${OPENROUTER_API:}
+      chat:
+        options:
+          model: ${OPENROUTER_MODEL:deepseek/deepseek-chat}
+    google:
+      genai:
+        api-key: ${GEMINI_API:}
+        chat:
+          options:
+            model: ${GEMINI_MODEL:gemini-2.5-flash-lite}
 
-gemini:
-  base_url: https://generativelanguage.googleapis.com/v1beta/
-  model: gemini-2.5-flash-lite
-  api_key: ${GEMINI_API}
-
-openrouter:
-  base_url: https://openrouter.ai/api/v1/chat/completions
-  model: deepseek/deepseek-4.1-flash
-  api_key: ${OPENROUTER_API}
-
-telegram_bot:
-  token: ${TELEGRAM_BOT_API}
+telegram-bot:
+  token: ${TELEGRAM_BOT_API:}
+  enabled: true
+  allowed-chat-ids: []
+  branch-max-depth: 20
+  branch-cache-max-size: 2000
+  branch-cache-ttl: 24h
+  system-prompt: >
+    Ты краткий и информативный справочный ассистент в групповом чате Telegram.
+    Отвечай кратко, точно и по существу на языке вопроса пользователя.
+    Если вопрос задан к пересланному или цитируемому сообщению, опирайся на его текст и контекст ветки.
+    Не добавляй лишних вступлений, воды и дисклеймеров.

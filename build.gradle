@@ -18,10 +18,20 @@ repositories {
 	mavenCentral()
 }
 
+dependencyManagement {
+	imports {
+		mavenBom "org.springframework.ai:spring-ai-bom:2.0.0"
+	}
+}
+
 dependencies {
 	// Telegram
 	implementation 'org.telegram:telegrambots-longpolling:10.3.0'
 	implementation 'org.telegram:telegrambots-client:10.3.0'
+
+	// Spring AI
+	implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+	implementation 'org.springframework.ai:spring-ai-starter-model-google-genai'
 
 	implementation 'org.springframework.boot:spring-boot-starter'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
