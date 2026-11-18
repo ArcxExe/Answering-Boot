@@ -92,7 +92,12 @@ export function createSqliteBranchContextStore({
       }
     },
 
-    async buildPromptMessages(chatId, leafMessageId) {
+    async buildPromptMessages(chatId, leafMessageId, systemPromptOverride) {
+      const activeSystemPrompt =
+        typeof systemPromptOverride === 'string' && systemPromptOverride.trim().length > 0
+          ? systemPromptOverride.trim()
+          : config.systemPrompt;
+
       try {
         const cutoff = nowFn() - config.branchCacheTtlMs;
         const leafToRoot = [];
@@ -118,12 +123,12 @@ export function createSqliteBranchContextStore({
 
         return buildPromptMessagesFromLeafToRoot(
           leafToRoot,
-          config.systemPrompt,
+          activeSystemPrompt,
           config.branchMaxContextChars
         );
       } catch (err) {
         warnFallback('buildPromptMessages', err);
-        return fallbackStore.buildPromptMessages(chatId, leafMessageId);
+        return fallbackStore.buildPromptMessages(chatId, leafMessageId, activeSystemPrompt);
       }
     },
   };

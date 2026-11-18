@@ -169,5 +169,80 @@ describe('llm-client', () => {
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent'
     );
     assert.equal(calls[0].init.headers['x-goog-api-key'], 'gm-key');
+    const parsedBody = JSON.parse(calls[0].init.body);
+    assert.equal(parsedBody.tools, undefined);
+  });
+
+  it('enables Google Search Grounding and appends deduplicated sources when configured', async () => {
+    const calls = [];
+    const fetchFn = async (url, init) => {
+      calls.push({ url, init });
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            candidates: [
+              {
+                content: { parts: [{ text: 'Курс доллара составляет 90 ₽.' }] },
+                groundingMetadata: {
+                  groundingChunks: [
+                    { web: { uri: 'https://cbr.ru/currency_base/daily/', title: 'ЦБ РФ' } },
+                    { web: { uri: 'https://cbr.ru/currency_base/daily/', title: 'Дубликат' } },
+                    { web: { uri: 'https://example.com/rates', title: 'Rates' } },
+                    { web: { uri: 'https://example.org/news' } },
+                    { web: { uri: 'https://example.net/fourth', title: 'Fourth' } },
+                    { web: { uri: 'javascript:alert(1)', title: 'Invalid' } },
+                  ],
+                },
+              },
+            ],
+          };
+        },
+      };
+    };
+
+    const client = createGeminiClient({
+      apiKey: 'gm-key',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      model: 'gemini-2.5-flash-lite',
+      fetchFn,
+      enableGoogleSearch: true,
+    });
+
+    const result = await client.ask(sampleMessages);
+    const parsedBody = JSON.parse(calls[0].init.body);
+    assert.deepEqual(parsedBody.tools, [{ google_search: {} }]);
+    assert.match(result, /^Курс доллара составляет 90 ₽\./);
+    assert.match(result, /Источники:/);
+    assert.match(result, /• ЦБ РФ — https:\/\/cbr\.ru\/currency_base\/daily\//);
+    assert.match(result, /• Rates — https:\/\/example\.com\/rates/);
+    assert.match(result, /• https:\/\/example\.org\/news/);
+    assert.doesNotMatch(result, /Дубликат/);
+    assert.doesNotMatch(result, /Fourth/);
+    assert.doesNotMatch(result, /javascript:/);
+  });
+
+  it('returns plain text without sources section when Google Search returns no groundingChunks', async () => {
+    const fetchFn = async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          candidates: [{ content: { parts: [{ text: '  Ответ без источников  ' }] } }],
+        };
+      },
+    });
+
+    const client = createGeminiClient({
+      apiKey: 'gm-key',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      model: 'gemini-2.5-flash-lite',
+      fetchFn,
+      enableGoogleSearch: true,
+    });
+
+    const result = await client.ask(sampleMessages);
+    assert.equal(result, 'Ответ без источников');
   });
 });

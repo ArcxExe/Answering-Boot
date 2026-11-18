@@ -21,3 +21,13 @@ export const branchNodes = table(
     createdAtIdx: index('idx_branch_nodes_created_at').on(t.createdAt),
   })
 );
+
+/**
+ * Persistent bot key-value settings (e.g. dynamic system prompt updated by admins).
+ */
+export const botSettings = table('bot_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+

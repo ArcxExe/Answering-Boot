@@ -19,8 +19,8 @@ export const DEFAULT_BRANCH_MAX_CONTEXT_CHARS = 6000;
 export const DEFAULT_BRANCH_CACHE_MAX_SIZE = 2000;
 export const DEFAULT_BRANCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-function normalizeAllowedChatIds(raw) {
-  if (!raw) {
+function normalizeIdSet(raw, { positiveOnly = false } = {}) {
+  if (raw === null || raw === undefined || raw === '') {
     return new Set();
   }
   const items =
@@ -30,9 +30,24 @@ function normalizeAllowedChatIds(raw) {
           .map((s) => s.trim())
           .filter(Boolean)
           .map((s) => Number(s))
-      : Array.from(raw, (v) => Number(v));
+      : typeof raw === 'number'
+        ? [raw]
+        : Array.from(raw, (v) => Number(v));
 
-  return new Set(items.filter((id) => Number.isSafeInteger(id)));
+  return new Set(
+    items.filter((id) => Number.isSafeInteger(id) && (!positiveOnly || id > 0))
+  );
+}
+
+function normalizeAdminUserIds(adminUserIds, ownerId) {
+  const merged = new Set();
+  for (const id of normalizeIdSet(adminUserIds, { positiveOnly: true })) {
+    merged.add(id);
+  }
+  for (const id of normalizeIdSet(ownerId, { positiveOnly: true })) {
+    merged.add(id);
+  }
+  return merged;
 }
 
 function normalizePositiveInt(value, fallback) {
@@ -82,7 +97,8 @@ export function createConfig(overrides = {}) {
 
   return Object.freeze({
     enabled: overrides.enabled !== false,
-    allowedChatIds: normalizeAllowedChatIds(overrides.allowedChatIds),
+    allowedChatIds: normalizeIdSet(overrides.allowedChatIds),
+    adminUserIds: normalizeAdminUserIds(overrides.adminUserIds, overrides.ownerId),
     systemPrompt,
     branchMaxDepth: normalizePositiveInt(overrides.branchMaxDepth, DEFAULT_BRANCH_MAX_DEPTH),
     branchMaxContextChars: normalizePositiveInt(

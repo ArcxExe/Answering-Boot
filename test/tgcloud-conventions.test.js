@@ -112,6 +112,8 @@ describe('scripts/generate-secrets.mjs', () => {
       OPENROUTER_API: 'or-key',
       GEMINI_API: 'gm-key',
       ALLOWED_CHAT_IDS: '-1001, -1002, bad',
+      OWNER_ID: '42',
+      ADMIN_USER_IDS: '42, 777, -5, invalid',
       BOT_ID: '12345',
       BOT_USERNAME: '@my_bot',
       BRANCH_MAX_DEPTH: '10',
@@ -119,6 +121,7 @@ describe('scripts/generate-secrets.mjs', () => {
     });
 
     assert.deepEqual(secrets.allowedChatIds, [-1001, -1002]);
+    assert.deepEqual(secrets.adminUserIds, [42, 777]);
     assert.equal(secrets.botId, 12345);
     assert.equal(secrets.botUsername, 'my_bot');
     assert.equal(secrets.branchMaxDepth, 10);
@@ -127,5 +130,6 @@ describe('scripts/generate-secrets.mjs', () => {
     const rendered = renderSecretsModule(secrets);
     assert.match(rendered, /export const SECRETS = Object\.freeze\(/);
     assert.match(rendered, /"openRouterApiKey": "or-key"/);
+    assert.match(rendered, /"adminUserIds": \[\s*42,\s*777\s*\]/);
   });
 });

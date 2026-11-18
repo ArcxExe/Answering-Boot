@@ -84,7 +84,7 @@ export class BranchContextStore {
     return this.cache.has(makeNodeKey(chatId, messageId));
   }
 
-  buildPromptMessages(chatId, leafMessageId) {
+  buildPromptMessages(chatId, leafMessageId, systemPromptOverride) {
     this.#evictExpired();
 
     const leafToRoot = [];
@@ -107,9 +107,14 @@ export class BranchContextStore {
       cursorId = node.parentMessageId;
     }
 
+    const activeSystemPrompt =
+      typeof systemPromptOverride === 'string' && systemPromptOverride.trim().length > 0
+        ? systemPromptOverride.trim()
+        : this.config.systemPrompt;
+
     return buildPromptMessagesFromLeafToRoot(
       leafToRoot,
-      this.config.systemPrompt,
+      activeSystemPrompt,
       this.config.branchMaxContextChars
     );
   }

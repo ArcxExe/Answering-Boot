@@ -66,8 +66,9 @@ export function createOpenRouterClient({ apiKey, baseUrl, model, fetchFn }) {
 /**
  * Converts normalized `{ role: 'system' | 'user' | 'assistant', content }` messages
  * to the Google Gemini `generateContent` payload, merging consecutive same-role turns.
+ * Optionally attaches Google Search Grounding (`tools: [{ google_search: {} }]`).
  */
-export function buildGeminiRequestBody(messages) {
+export function buildGeminiRequestBody(messages, { enableGoogleSearch = false } = {}) {
   const systemTexts = [];
   const contents = [];
 
@@ -97,6 +98,9 @@ export function buildGeminiRequestBody(messages) {
       parts: [{ text: systemTexts.join('\n\n') }],
     };
   }
+  if (enableGoogleSearch) {
+    body.tools = [{ google_search: {} }];
+  }
   return body;
 }
 
@@ -109,9 +113,53 @@ function extractGeminiText(data) {
 }
 
 /**
- * Creates a Google Gemini REST API (`generateContent`) client.
+ * Extracts up to `maxSources` deduplicated web grounding sources from a Gemini response.
  */
-export function createGeminiClient({ apiKey, baseUrl, model, fetchFn }) {
+export function extractGeminiGroundingSources(data, maxSources = 3) {
+  const chunks = data?.candidates?.[0]?.groundingMetadata?.groundingChunks;
+  if (!Array.isArray(chunks) || maxSources <= 0) {
+    return [];
+  }
+
+  const seenUris = new Set();
+  const sources = [];
+  for (const chunk of chunks) {
+    const uri = typeof chunk?.web?.uri === 'string' ? chunk.web.uri.trim() : '';
+    if (!uri || !/^https?:\/\//i.test(uri) || seenUris.has(uri)) {
+      continue;
+    }
+    seenUris.add(uri);
+    const title = typeof chunk?.web?.title === 'string' ? chunk.web.title.trim() : '';
+    sources.push({ title, uri });
+    if (sources.length >= maxSources) {
+      break;
+    }
+  }
+  return sources;
+}
+
+function appendGroundingSources(text, sources) {
+  if (!Array.isArray(sources) || sources.length === 0) {
+    return text;
+  }
+  const lines = sources.map((source) =>
+    source.title ? `• ${source.title} — ${source.uri}` : `• ${source.uri}`
+  );
+  return `${text}\n\nИсточники:\n${lines.join('\n')}`;
+}
+
+/**
+ * Creates a Google Gemini REST API (`generateContent`) client.
+ * Pass `enableGoogleSearch: true` to ground responses with Google Search.
+ */
+export function createGeminiClient({
+  apiKey,
+  baseUrl,
+  model,
+  fetchFn,
+  enableGoogleSearch = false,
+  maxGroundingSources = 3,
+}) {
   return {
     async ask(messages) {
       if (!apiKey) {
@@ -125,7 +173,7 @@ export function createGeminiClient({ apiKey, baseUrl, model, fetchFn }) {
           'Content-Type': 'application/json',
           'x-goog-api-key': apiKey,
         },
-        body: JSON.stringify(buildGeminiRequestBody(messages)),
+        body: JSON.stringify(buildGeminiRequestBody(messages, { enableGoogleSearch })),
       });
 
       if (!res.ok) {
@@ -134,7 +182,18 @@ export function createGeminiClient({ apiKey, baseUrl, model, fetchFn }) {
       }
 
       const data = await res.json();
-      return extractGeminiText(data);
+      const text = extractGeminiText(data);
+      if (!enableGoogleSearch) {
+        return text;
+      }
+
+      const trimmed = text.trim();
+      if (trimmed.length === 0) {
+        return '';
+      }
+
+      const sources = extractGeminiGroundingSources(data, maxGroundingSources);
+      return appendGroundingSources(trimmed, sources);
     },
   };
 }

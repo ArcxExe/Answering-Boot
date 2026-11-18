@@ -4,13 +4,25 @@ import { createBotProcessor } from '../tgcloud/lib/bot-processor.js';
 import { BranchContextStore } from '../tgcloud/lib/branch-context-store.js';
 import { createConfig } from '../tgcloud/lib/config.js';
 
+import { createInMemorySettingsStore } from '../tgcloud/lib/settings-store.js';
+
 const BOT_ID = 999;
 const BOT_USERNAME = 'answering_bot';
 const silentLogger = { warn() {}, error() {}, debug() {} };
 
-function createHarness({ llmAnswers = [], llmError = null, preloadIdentity = true } = {}) {
+function createHarness({
+  llmAnswers = [],
+  llmError = null,
+  searchAnswers = ['Найденный ответ в Google.'],
+  searchError = null,
+  enableSearchClient = true,
+  ownerId = null,
+  settingsStore = createInMemorySettingsStore(),
+  preloadIdentity = true,
+} = {}) {
   const config = createConfig({
     systemPrompt: 'Будь кратким.',
+    ownerId,
     botId: preloadIdentity ? BOT_ID : null,
     botUsername: preloadIdentity ? BOT_USERNAME : '',
   });
@@ -18,8 +30,10 @@ function createHarness({ llmAnswers = [], llmError = null, preloadIdentity = tru
 
   const apiCalls = [];
   const llmPrompts = [];
+  const searchPrompts = [];
   let nextSentId = 500;
   let answerIndex = 0;
+  let searchIndex = 0;
 
   const api = {
     async getMe() {
@@ -54,15 +68,31 @@ function createHarness({ llmAnswers = [], llmError = null, preloadIdentity = tru
     },
   };
 
+  const searchLlmClient = enableSearchClient
+    ? {
+        async ask(messages) {
+          searchPrompts.push(messages);
+          if (searchError) {
+            throw searchError;
+          }
+          const next = searchAnswers[Math.min(searchIndex, searchAnswers.length - 1)];
+          searchIndex += 1;
+          return next;
+        },
+      }
+    : null;
+
   const processor = createBotProcessor({
     api,
     config,
     contextStore,
+    settingsStore,
     llmService,
+    searchLlmClient,
     logger: silentLogger,
   });
 
-  return { processor, apiCalls, llmPrompts, contextStore };
+  return { processor, apiCalls, llmPrompts, searchPrompts, contextStore, settingsStore };
 }
 
 describe('bot-processor', () => {
@@ -298,5 +328,167 @@ describe('bot-processor', () => {
 
     const getMeCalls = apiCalls.filter((c) => c.method === 'getMe');
     assert.equal(getMeCalls.length, 1);
+  });
+
+  it('allows admin by Telegram ID to view, update, and reset dynamic system prompt', async () => {
+    const { processor, apiCalls, llmPrompts } = createHarness({
+      ownerId: 42,
+      llmAnswers: ['Ответ 1', 'Ответ 2'],
+    });
+    const dmAdmin = { id: 42, type: 'private' };
+    const adminUser = { id: 42, first_name: 'Владелец', is_bot: false };
+
+    // 1. Check default prompt
+    await processor.processMessage({
+      message_id: 1,
+      chat: dmAdmin,
+      from: adminUser,
+      text: '/prompt',
+    });
+    assert.match(apiCalls.at(-1).params.text, /по умолчанию/);
+    assert.match(apiCalls.at(-1).params.text, /Будь кратким\./);
+
+    // 2. Empty /setprompt returns usage hint
+    await processor.processMessage({
+      message_id: 2,
+      chat: dmAdmin,
+      from: adminUser,
+      text: '/setprompt   ',
+    });
+    assert.match(apiCalls.at(-1).params.text, /Укажите новый системный промпт/);
+
+    // 3. Update prompt with multiline text
+    await processor.processMessage({
+      message_id: 3,
+      chat: dmAdmin,
+      from: adminUser,
+      text: '/setprompt Ты пират.\nОтвечай коротко.',
+    });
+    assert.match(apiCalls.at(-1).params.text, /обновлён/);
+
+    // 4. Subsequent chat question uses the new custom system prompt
+    await processor.processMessage({
+      message_id: 4,
+      chat: { id: -100, type: 'supergroup' },
+      from: { id: 10, first_name: 'Мария', is_bot: false },
+      text: '@answering_bot привет',
+    });
+    assert.equal(llmPrompts.length, 1);
+    assert.equal(llmPrompts[0][0].role, 'system');
+    assert.equal(llmPrompts[0][0].content, 'Ты пират.\nОтвечай коротко.');
+
+    // 5. /prompt shows custom prompt
+    await processor.processMessage({
+      message_id: 5,
+      chat: dmAdmin,
+      from: adminUser,
+      text: '/prompt',
+    });
+    assert.match(apiCalls.at(-1).params.text, /пользовательский/);
+    assert.match(apiCalls.at(-1).params.text, /Ты пират\./);
+
+    // 6. /resetprompt restores default system prompt
+    await processor.processMessage({
+      message_id: 6,
+      chat: dmAdmin,
+      from: adminUser,
+      text: '/resetprompt',
+    });
+    assert.match(apiCalls.at(-1).params.text, /сброшен/);
+
+    await processor.processMessage({
+      message_id: 7,
+      chat: { id: -100, type: 'supergroup' },
+      from: { id: 10, first_name: 'Мария', is_bot: false },
+      text: '@answering_bot ещё вопрос',
+    });
+    assert.equal(llmPrompts.length, 2);
+    assert.equal(llmPrompts[1][0].content, 'Будь кратким.');
+  });
+
+  it('denies non-admin prompt changes in DM and returns user ID on /id', async () => {
+    const { processor, apiCalls, llmPrompts } = createHarness({ ownerId: 42 });
+    const dmUser = { id: 99, type: 'private' };
+
+    await processor.processMessage({
+      message_id: 1,
+      chat: dmUser,
+      from: { id: 99, first_name: 'Гость', is_bot: false },
+      text: '/id',
+    });
+    assert.equal(apiCalls.at(-1).params.text, 'Ваш Telegram ID: 99');
+
+    await processor.processMessage({
+      message_id: 2,
+      chat: dmUser,
+      from: { id: 99, first_name: 'Гость', is_bot: false },
+      text: '/setprompt новый',
+    });
+    assert.match(apiCalls.at(-1).params.text, /нет доступа/);
+    assert.equal(llmPrompts.length, 0);
+  });
+
+  it('routes /search to Gemini Google Search client, includes reply context, and stores branch', async () => {
+    const { processor, apiCalls, llmPrompts, searchPrompts, contextStore } = createHarness({
+      searchAnswers: ['Актуальный курс: 90 ₽.\n\nИсточники:\n• ЦБ РФ — https://cbr.ru/'],
+    });
+    const group = { id: -200, type: 'supergroup' };
+
+    await processor.processMessage({
+      message_id: 80,
+      chat: group,
+      from: { id: 11, first_name: 'Мария', is_bot: false },
+      reply_to_message: {
+        message_id: 79,
+        chat: group,
+        text: 'Говорят доллар сегодня по 100?',
+      },
+      text: '/search@answering_bot проверь курс доллара',
+    });
+
+    assert.equal(llmPrompts.length, 0);
+    assert.equal(searchPrompts.length, 1);
+    assert.equal(searchPrompts[0].length, 3); // system + reply parent + search query
+    assert.match(searchPrompts[0][1].content, /Говорят доллар сегодня по 100/);
+    assert.match(searchPrompts[0][2].content, /проверь курс доллара/);
+    assert.doesNotMatch(searchPrompts[0][2].content, /\/search/);
+
+    const sent = apiCalls.find((c) => c.method === 'sendMessage');
+    assert.ok(sent);
+    assert.match(sent.params.text, /Актуальный курс: 90 ₽/);
+    assert.equal(contextStore.contains(-200, 500), true);
+  });
+
+  it('handles empty /search usage, missing GEMINI_API, and Gemini search errors gracefully', async () => {
+    // Empty /search without reply shows usage hint
+    const h1 = createHarness();
+    await h1.processor.processMessage({
+      message_id: 1,
+      chat: { id: -200, type: 'group' },
+      from: { id: 11, first_name: 'Иван', is_bot: false },
+      text: '/search',
+    });
+    assert.equal(h1.searchPrompts.length, 0);
+    assert.match(h1.apiCalls.at(-1).params.text, /Укажите запрос/);
+
+    // Missing Gemini API client
+    const h2 = createHarness({ enableSearchClient: false });
+    await h2.processor.processMessage({
+      message_id: 2,
+      chat: { id: -200, type: 'group' },
+      from: { id: 11, first_name: 'Иван', is_bot: false },
+      text: '/search погода',
+    });
+    assert.match(h2.apiCalls.at(-1).params.text, /GEMINI_API/);
+
+    // Gemini search throws error
+    const h3 = createHarness({ searchError: new Error('Gemini 503') });
+    await h3.processor.processMessage({
+      message_id: 3,
+      chat: { id: -200, type: 'group' },
+      from: { id: 11, first_name: 'Иван', is_bot: false },
+      text: '/search погода',
+    });
+    assert.match(h3.apiCalls.at(-1).params.text, /Не удалось выполнить поиск через Gemini/);
   });
 });
