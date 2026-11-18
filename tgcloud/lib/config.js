@@ -14,7 +14,8 @@ export const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const DEFAULT_OPENROUTER_MODEL = 'deepseek/deepseek-chat';
 export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
-export const DEFAULT_BRANCH_MAX_DEPTH = 20;
+export const DEFAULT_BRANCH_MAX_DEPTH = 8;
+export const DEFAULT_BRANCH_MAX_CONTEXT_CHARS = 6000;
 export const DEFAULT_BRANCH_CACHE_MAX_SIZE = 2000;
 export const DEFAULT_BRANCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -84,6 +85,10 @@ export function createConfig(overrides = {}) {
     allowedChatIds: normalizeAllowedChatIds(overrides.allowedChatIds),
     systemPrompt,
     branchMaxDepth: normalizePositiveInt(overrides.branchMaxDepth, DEFAULT_BRANCH_MAX_DEPTH),
+    branchMaxContextChars: normalizePositiveInt(
+      overrides.branchMaxContextChars,
+      DEFAULT_BRANCH_MAX_CONTEXT_CHARS
+    ),
     branchCacheMaxSize: normalizePositiveInt(
       overrides.branchCacheMaxSize,
       DEFAULT_BRANCH_CACHE_MAX_SIZE

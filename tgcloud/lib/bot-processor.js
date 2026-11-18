@@ -56,11 +56,11 @@ export function createBotProcessor({
     return cachedIdentity;
   }
 
-  function seedReplyParentIfMissing(chatId, replyTo, botId) {
+  async function seedReplyParentIfMissing(chatId, replyTo, botId) {
     if (!replyTo || replyTo.message_id == null) {
       return false;
     }
-    if (contextStore.contains(chatId, replyTo.message_id)) {
+    if (await contextStore.contains(chatId, replyTo.message_id)) {
       return true;
     }
     const text = extractText(replyTo);
@@ -72,7 +72,7 @@ export function createBotProcessor({
         ? BranchRole.ASSISTANT
         : BranchRole.USER;
 
-    contextStore.recordNode({
+    await contextStore.recordNode({
       chatId,
       messageId: replyTo.message_id,
       parentMessageId: null,
@@ -129,7 +129,7 @@ export function createBotProcessor({
       }
 
       const replyTo = incoming.reply_to_message ?? null;
-      const hasReplyParent = seedReplyParentIfMissing(chatId, replyTo, botId);
+      const hasReplyParent = await seedReplyParentIfMissing(chatId, replyTo, botId);
 
       const rawText = extractText(incoming) ?? '';
       let cleanQuery = stripBotMention(rawText, botUsername);
@@ -144,7 +144,7 @@ export function createBotProcessor({
       }
 
       const parentMessageId = hasReplyParent ? replyTo.message_id : null;
-      contextStore.recordNode({
+      await contextStore.recordNode({
         chatId,
         messageId: incoming.message_id,
         parentMessageId,
@@ -159,7 +159,10 @@ export function createBotProcessor({
 
       let answer;
       try {
-        const promptMessages = contextStore.buildPromptMessages(chatId, incoming.message_id);
+        const promptMessages = await contextStore.buildPromptMessages(
+          chatId,
+          incoming.message_id
+        );
         answer = await llmService.generateAnswer(promptMessages);
       } catch (err) {
         logger.error(
@@ -175,7 +178,7 @@ export function createBotProcessor({
       for (const chunk of chunks) {
         const sent = await sendReply(chatId, replyTargetId, chunk);
         if (sent && sent.message_id != null) {
-          contextStore.recordNode({
+          await contextStore.recordNode({
             chatId,
             messageId: sent.message_id,
             parentMessageId: replyTargetId,

@@ -65,6 +65,12 @@ export function buildSecretsObject(env) {
   const rawBotId = String(env.BOT_ID ?? '').trim();
   const parsedBotId = rawBotId ? Number(rawBotId) : null;
 
+  const rawMaxDepth = String(env.BRANCH_MAX_DEPTH ?? '').trim();
+  const parsedMaxDepth = rawMaxDepth ? Number(rawMaxDepth) : null;
+
+  const rawMaxContextChars = String(env.BRANCH_MAX_CONTEXT_CHARS ?? '').trim();
+  const parsedMaxContextChars = rawMaxContextChars ? Number(rawMaxContextChars) : null;
+
   return {
     openRouterApiKey: String(env.OPENROUTER_API ?? '').trim(),
     geminiApiKey: String(env.GEMINI_API ?? '').trim(),
@@ -74,6 +80,12 @@ export function buildSecretsObject(env) {
     systemPrompt: String(env.SYSTEM_PROMPT ?? '').trim(),
     botId: Number.isSafeInteger(parsedBotId) ? parsedBotId : null,
     botUsername: String(env.BOT_USERNAME ?? '').trim().replace(/^@/, ''),
+    branchMaxDepth:
+      Number.isInteger(parsedMaxDepth) && parsedMaxDepth > 0 ? parsedMaxDepth : null,
+    branchMaxContextChars:
+      Number.isInteger(parsedMaxContextChars) && parsedMaxContextChars > 0
+        ? parsedMaxContextChars
+        : null,
   };
 }
 

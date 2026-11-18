@@ -149,4 +149,48 @@ describe('BranchContextStore', () => {
     assert.equal(store.contains(chatId, 2), false);
     assert.equal(store.contains(chatId, 3), false);
   });
+
+  it('trims oldest ancestors when branch exceeds maxContextChars while always keeping leaf', () => {
+    const now = Date.parse('2026-11-18T12:00:00Z');
+    const config = createConfig({
+      systemPrompt: 'Sys',
+      branchMaxDepth: 10,
+      branchMaxContextChars: 60,
+    });
+    const store = new BranchContextStore(config, () => now);
+    const chatId = -1004;
+
+    store.recordNode({
+      chatId,
+      messageId: 1,
+      parentMessageId: null,
+      role: BranchRole.USER,
+      authorLabel: 'A',
+      text: 'Очень старое длинное сообщение 11111111111111111111',
+      createdAt: now,
+    });
+    store.recordNode({
+      chatId,
+      messageId: 2,
+      parentMessageId: 1,
+      role: BranchRole.ASSISTANT,
+      authorLabel: 'bot',
+      text: 'Ответ бота номер один 2222222222',
+      createdAt: now + 1000,
+    });
+    store.recordNode({
+      chatId,
+      messageId: 3,
+      parentMessageId: 2,
+      role: BranchRole.USER,
+      authorLabel: 'B',
+      text: 'Короткий вопрос',
+      createdAt: now + 2000,
+    });
+
+    const prompt = store.buildPromptMessages(chatId, 3);
+    assert.equal(prompt.length, 3); // system + msg 2 + msg 3 (msg 1 trimmed by budget)
+    assert.match(prompt[1].content, /Ответ бота номер один/);
+    assert.match(prompt[2].content, /Короткий вопрос/);
+  });
 });

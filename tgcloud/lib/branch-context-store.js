@@ -1,6 +1,5 @@
 /**
- * Bounded in-memory LRU reply-branch cache with TTL eviction that reconstructs
- * LLM prompt history along the reply chain from root to leaf.
+ * Reply-branch prompt formatting helpers and bounded in-memory LRU+TTL store.
  */
 
 export const BranchRole = Object.freeze({
@@ -8,11 +7,11 @@ export const BranchRole = Object.freeze({
   ASSISTANT: 'assistant',
 });
 
-function makeKey(chatId, messageId) {
+export function makeNodeKey(chatId, messageId) {
   return `${chatId}:${messageId}`;
 }
 
-function formatUserContent(node) {
+export function formatUserContent(node) {
   if (typeof node.forwardedFrom === 'string' && node.forwardedFrom.trim().length > 0) {
     return `[Переслано от ${node.forwardedFrom.trim()}]: ${node.text}`;
   }
@@ -20,6 +19,35 @@ function formatUserContent(node) {
     return `${node.authorLabel.trim()}: ${node.text}`;
   }
   return node.text;
+}
+
+export function toLlmMessage(node) {
+  if (node.role === BranchRole.ASSISTANT) {
+    return { role: 'assistant', content: node.text };
+  }
+  return { role: 'user', content: formatUserContent(node) };
+}
+
+/**
+ * Formats a leaf-to-root node chain into a root-to-leaf LLM prompt array,
+ * keeping total history size within `maxContextChars` (always preserving the leaf message).
+ */
+export function buildPromptMessagesFromLeafToRoot(leafToRootNodes, systemPrompt, maxContextChars) {
+  const kept = [];
+  let totalChars = 0;
+
+  for (const node of leafToRootNodes) {
+    const message = toLlmMessage(node);
+    const len = message.content.length;
+    if (kept.length > 0 && maxContextChars > 0 && totalChars + len > maxContextChars) {
+      break;
+    }
+    kept.push(message);
+    totalChars += len;
+  }
+
+  kept.reverse();
+  return [{ role: 'system', content: systemPrompt }, ...kept];
 }
 
 export class BranchContextStore {
@@ -31,7 +59,7 @@ export class BranchContextStore {
 
   recordNode(node) {
     this.#evictExpired();
-    const key = makeKey(node.chatId, node.messageId);
+    const key = makeNodeKey(node.chatId, node.messageId);
     const entry = {
       chatId: node.chatId,
       messageId: node.messageId,
@@ -53,20 +81,20 @@ export class BranchContextStore {
 
   contains(chatId, messageId) {
     this.#evictExpired();
-    return this.cache.has(makeKey(chatId, messageId));
+    return this.cache.has(makeNodeKey(chatId, messageId));
   }
 
   buildPromptMessages(chatId, leafMessageId) {
     this.#evictExpired();
 
-    const chain = [];
+    const leafToRoot = [];
     const visitedIds = new Set();
     let cursorId = leafMessageId;
     const maxDepth = this.config.branchMaxDepth;
 
-    while (cursorId != null && chain.length < maxDepth && !visitedIds.has(cursorId)) {
+    while (cursorId != null && leafToRoot.length < maxDepth && !visitedIds.has(cursorId)) {
       visitedIds.add(cursorId);
-      const key = makeKey(chatId, cursorId);
+      const key = makeNodeKey(chatId, cursorId);
       const node = this.cache.get(key);
       if (!node) {
         break;
@@ -75,21 +103,15 @@ export class BranchContextStore {
       this.cache.delete(key);
       this.cache.set(key, node);
 
-      chain.push(node);
+      leafToRoot.push(node);
       cursorId = node.parentMessageId;
     }
 
-    chain.reverse();
-
-    const messages = [{ role: 'system', content: this.config.systemPrompt }];
-    for (const node of chain) {
-      if (node.role === BranchRole.ASSISTANT) {
-        messages.push({ role: 'assistant', content: node.text });
-      } else {
-        messages.push({ role: 'user', content: formatUserContent(node) });
-      }
-    }
-    return messages;
+    return buildPromptMessagesFromLeafToRoot(
+      leafToRoot,
+      this.config.systemPrompt,
+      this.config.branchMaxContextChars
+    );
   }
 
   #evictExpired() {
