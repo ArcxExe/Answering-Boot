@@ -35,6 +35,8 @@ public class TelegramBotService implements SmartLifecycle, LongPollingSingleThre
     private static final int TELEGRAM_MAX_MESSAGE_LENGTH = 4096;
     private static final String DEFAULT_FORWARD_PROMPT =
             "Дай краткий и информативный ответ или пояснение по этому сообщению.";
+    private static final String UNSUPPORTED_EMPTY_REPLY_NOTICE =
+            "Уточните вопрос или ответьте на текстовое сообщение (или пост с подписью).";
     private static final String LLM_ERROR_REPLY =
             "Не удалось получить ответ от нейросети. Попробуйте чуть позже.";
 
@@ -165,19 +167,22 @@ public class TelegramBotService implements SmartLifecycle, LongPollingSingleThre
         }
 
         Message replyTo = incoming.getReplyToMessage();
-        seedReplyParentIfMissing(chatId, replyTo);
+        boolean hasReplyParent = seedReplyParentIfMissing(chatId, replyTo);
 
         String rawText = extractor.extractText(incoming).orElse("");
         String cleanQuery = extractor.stripBotMention(rawText, botUsername);
         if (cleanQuery.isBlank()) {
-            if (replyTo == null) {
+            if (!hasReplyParent) {
+                if (replyTo != null) {
+                    sendReply(chatId, incoming.getMessageId(), UNSUPPORTED_EMPTY_REPLY_NOTICE);
+                }
                 return;
             }
             cleanQuery = DEFAULT_FORWARD_PROMPT;
         }
 
         MessageKey incomingKey = new MessageKey(chatId, incoming.getMessageId());
-        Integer parentId = replyTo != null ? replyTo.getMessageId() : null;
+        Integer parentId = hasReplyParent ? replyTo.getMessageId() : null;
         contextStore.recordNode(new BranchNode(
                 incomingKey,
                 parentId,
@@ -219,15 +224,15 @@ public class TelegramBotService implements SmartLifecycle, LongPollingSingleThre
         }
     }
 
-    private void seedReplyParentIfMissing(long chatId, Message replyTo) {
+    private boolean seedReplyParentIfMissing(long chatId, Message replyTo) {
         if (replyTo == null || replyTo.getMessageId() == null) {
-            return;
+            return false;
         }
         MessageKey replyKey = new MessageKey(chatId, replyTo.getMessageId());
         if (contextStore.contains(replyKey)) {
-            return;
+            return true;
         }
-        extractor.extractText(replyTo).ifPresent(text -> {
+        return extractor.extractText(replyTo).map(text -> {
             BranchNode.Role role = replyTo.getFrom() != null && replyTo.getFrom().getId().equals(botId)
                     ? BranchNode.Role.ASSISTANT
                     : BranchNode.Role.USER;
@@ -240,7 +245,8 @@ public class TelegramBotService implements SmartLifecycle, LongPollingSingleThre
                     text,
                     Instant.now()
             ));
-        });
+            return true;
+        }).orElse(false);
     }
 
     private void sendTyping(long chatId) {

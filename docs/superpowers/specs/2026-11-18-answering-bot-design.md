@@ -72,7 +72,7 @@
 - Оставить существующие зависимости `org.telegram:telegrambots-longpolling:10.3.0` и `org.telegram:telegrambots-client:10.3.0`.
 - Удалить старые ручные `RestClient`-классы и DTO в пакетах `com.arcx.answeringbot.gemini.*` и `com.arcx.answeringbot.openrouter.*`, заменив их слоем на базе Spring AI (чтобы не поддерживать два конкурирующих LLM-клиента).
 - В `application.yaml` сохранить загрузку `optional:file:.env[.properties]` и замаппить существующие переменные окружения:
-  - `spring.ai.openai.base-url: https://openrouter.ai/api`
+  - `spring.ai.openai.base-url: https://openrouter.ai/api/v1`
   - `spring.ai.openai.api-key: ${OPENROUTER_API}`
   - `spring.ai.openai.chat.options.model` (настраиваемая модель OpenRouter, текущая из конфига или дефолтная)
   - `spring.ai.google.genai.api-key: ${GEMINI_API}`

@@ -216,4 +216,153 @@ class TelegramBotServiceTest {
         assertThat(sendCaptor.getValue().getReplyToMessageId()).isEqualTo(20);
         assertThat(sendCaptor.getValue().getText()).contains("Не удалось получить ответ");
     }
+
+    @Test
+    void doesNotCallLlmWhenEmptyMentionRepliesToMediaWithoutCaption() throws Exception {
+        TelegramClient telegramClient = mock(TelegramClient.class);
+        LlmFallbackService llmService = mock(LlmFallbackService.class);
+        BranchContextStore store = new BranchContextStore(defaultProps());
+        TelegramBotService botService = createService(telegramClient, llmService, store);
+
+        Chat group = Chat.builder().id(-100L).type("supergroup").build();
+        Message photoWithoutCaption = Message.builder()
+                .messageId(30)
+                .chat(group)
+                .from(User.builder().id(10L).firstName("Алексей").isBot(false).build())
+                .build();
+        Message mentionOnly = Message.builder()
+                .messageId(31)
+                .chat(group)
+                .from(User.builder().id(11L).firstName("Мария").isBot(false).build())
+                .replyToMessage(photoWithoutCaption)
+                .text("@answering_bot")
+                .build();
+
+        when(telegramClient.execute(any(SendMessage.class)))
+                .thenReturn(Message.builder().messageId(32).chat(group).text("notice").build());
+
+        botService.processMessage(mentionOnly);
+
+        verify(llmService, never()).generateAnswer(any());
+        ArgumentCaptor<SendMessage> sendCaptor = ArgumentCaptor.forClass(SendMessage.class);
+        verify(telegramClient).execute(sendCaptor.capture());
+        assertThat(sendCaptor.getValue().getReplyToMessageId()).isEqualTo(31);
+        assertThat(sendCaptor.getValue().getText()).contains("текстов");
+    }
+
+    @Test
+    void splitsLongLlmAnswerIntoChainedRepliesAndStoresAllChunks() throws Exception {
+        TelegramClient telegramClient = mock(TelegramClient.class);
+        LlmFallbackService llmService = mock(LlmFallbackService.class);
+        BranchContextStore store = new BranchContextStore(defaultProps());
+        TelegramBotService botService = createService(telegramClient, llmService, store);
+
+        Chat group = Chat.builder().id(-100L).type("supergroup").build();
+        Message incoming = Message.builder()
+                .messageId(40)
+                .chat(group)
+                .from(User.builder().id(11L).firstName("Мария").isBot(false).build())
+                .text("@answering_bot расскажи подробно")
+                .build();
+
+        String longAnswer = ("Абзац ответа про Spring AI и Telegram.\n").repeat(140); // > 4096 chars
+        when(telegramClient.execute(any(SendChatAction.class))).thenReturn(Boolean.TRUE);
+        when(llmService.generateAnswer(any())).thenReturn(longAnswer);
+        when(telegramClient.execute(any(SendMessage.class)))
+                .thenReturn(Message.builder().messageId(41).chat(group).text("c1").build())
+                .thenReturn(Message.builder().messageId(42).chat(group).text("c2").build());
+
+        botService.processMessage(incoming);
+
+        ArgumentCaptor<BotApiMethod> methodCaptor = ArgumentCaptor.forClass(BotApiMethod.class);
+        verify(telegramClient, org.mockito.Mockito.times(3)).execute(methodCaptor.capture());
+        SendMessage firstChunk = (SendMessage) methodCaptor.getAllValues().get(1);
+        SendMessage secondChunk = (SendMessage) methodCaptor.getAllValues().get(2);
+
+        assertThat(firstChunk.getReplyToMessageId()).isEqualTo(40);
+        assertThat(firstChunk.getText().length()).isLessThanOrEqualTo(4096);
+        assertThat(secondChunk.getReplyToMessageId()).isEqualTo(41);
+        assertThat(secondChunk.getText().length()).isLessThanOrEqualTo(4096);
+        assertThat(store.contains(new MessageKey(-100L, 41))).isTrue();
+        assertThat(store.contains(new MessageKey(-100L, 42))).isTrue();
+    }
+
+    @Test
+    void answersFollowUpReplyToBotMessageWithoutMention() throws Exception {
+        TelegramClient telegramClient = mock(TelegramClient.class);
+        LlmFallbackService llmService = mock(LlmFallbackService.class);
+        BranchContextStore store = new BranchContextStore(defaultProps());
+        TelegramBotService botService = createService(telegramClient, llmService, store);
+
+        Chat group = Chat.builder().id(-100L).type("supergroup").build();
+        Message forwarded = Message.builder()
+                .messageId(60)
+                .chat(group)
+                .forwardOrigin(MessageOriginChannel.builder()
+                        .chat(Chat.builder().id(-200L).type("channel").title("TechNews").build())
+                        .build())
+                .text("Релиз Codex состоялся.")
+                .build();
+        Message firstQuestion = Message.builder()
+                .messageId(61)
+                .chat(group)
+                .from(User.builder().id(11L).firstName("Мария").isBot(false).build())
+                .replyToMessage(forwarded)
+                .text("@answering_bot когда?")
+                .build();
+        Message botFirstReply = Message.builder()
+                .messageId(62)
+                .chat(group)
+                .from(User.builder().id(BOT_ID).firstName("Bot").isBot(true).build())
+                .text("10 августа 2021 года.")
+                .build();
+
+        when(telegramClient.execute(any(SendChatAction.class))).thenReturn(Boolean.TRUE);
+        when(llmService.generateAnswer(any())).thenReturn("10 августа 2021 года.", "OpenAI.");
+        when(telegramClient.execute(any(SendMessage.class)))
+                .thenReturn(botFirstReply)
+                .thenReturn(Message.builder().messageId(63).chat(group).text("OpenAI.").build());
+
+        botService.processMessage(firstQuestion);
+
+        Message followUp = Message.builder()
+                .messageId(64)
+                .chat(group)
+                .from(User.builder().id(12L).firstName("Петр").isBot(false).build())
+                .replyToMessage(botFirstReply)
+                .text("А кто разработчик?")
+                .build();
+
+        botService.processMessage(followUp);
+
+        ArgumentCaptor<List<org.springframework.ai.chat.messages.Message>> llmCaptor = ArgumentCaptor.forClass(List.class);
+        verify(llmService, org.mockito.Mockito.times(2)).generateAnswer(llmCaptor.capture());
+        List<org.springframework.ai.chat.messages.Message> secondPrompt = llmCaptor.getAllValues().get(1);
+        assertThat(secondPrompt).hasSize(5); // System + forwarded + Q1 + A1 + Q2
+        assertThat(secondPrompt.get(1).getText()).contains("TechNews");
+        assertThat(secondPrompt.get(3)).isInstanceOf(AssistantMessage.class);
+        assertThat(secondPrompt.get(4).getText()).contains("А кто разработчик?");
+    }
+
+    @Test
+    void ignoresNonMentionedGroupChatter() throws Exception {
+        TelegramClient telegramClient = mock(TelegramClient.class);
+        LlmFallbackService llmService = mock(LlmFallbackService.class);
+        BranchContextStore store = new BranchContextStore(defaultProps());
+        TelegramBotService botService = createService(telegramClient, llmService, store);
+
+        Chat group = Chat.builder().id(-100L).type("supergroup").build();
+        Message chatter = Message.builder()
+                .messageId(70)
+                .chat(group)
+                .from(User.builder().id(11L).firstName("Мария").isBot(false).build())
+                .text("Просто сообщение в чате")
+                .build();
+
+        botService.processMessage(chatter);
+
+        verify(llmService, never()).generateAnswer(any());
+        verify(telegramClient, never()).execute(any(SendMessage.class));
+        verify(telegramClient, never()).execute(any(SendChatAction.class));
+    }
 }

@@ -7,10 +7,17 @@ spring:
     chat:
       client:
         enabled: false
+    retry:
+      max-attempts: 2
+      backoff:
+        initial-interval: 500ms
+        multiplier: 2
+        max-interval: 2s
     openai:
-      base-url: https://openrouter.ai/api
+      base-url: https://openrouter.ai/api/v1
       api-key: ${OPENROUTER_API:}
       chat:
+        max-retries: 1
         options:
           model: ${OPENROUTER_MODEL:deepseek/deepseek-chat}
     google:
