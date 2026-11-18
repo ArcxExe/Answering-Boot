@@ -1,0 +1,21 @@
+{
+  "name": "answering-bot-serverless",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AnsweringBot Telegram group Q&A bot for Telegram Serverless (tgcloud)",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build:secrets": "node scripts/generate-secrets.mjs",
+    "deploy": "node scripts/generate-secrets.mjs && npx tgcloud push",
+    "status": "npx tgcloud status",
+    "diff": "npx tgcloud diff",
+    "webhook": "npx tgcloud webhook"
+  },
+  "devDependencies": {
+    "@tgcloud/cli": "^0.2.0"
+  }
+}

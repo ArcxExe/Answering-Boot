@@ -1,7 +1,0 @@
-services:
-  answering-bot:
-    build: .
-    container_name: answering-bot
-    env_file:
-      - .env
-    restart: unless-stopped
