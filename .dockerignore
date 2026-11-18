@@ -1,0 +1,9 @@
+.git
+.gradle
+.idea
+.superpowers
+.env
+build
+docs
+out
+*.iml
