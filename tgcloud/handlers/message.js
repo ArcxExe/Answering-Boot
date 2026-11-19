@@ -1,13 +1,27 @@
-import { api, fetch } from 'sdk';
+import { api, db, fetch } from 'sdk';
+import { eq, lt } from 'sdk/db';
 import { createBotProcessor } from '../lib/bot-processor.js';
-import { BranchContextStore } from '../lib/branch-context-store.js';
 import { createConfig } from '../lib/config.js';
 import { createGeminiClient, createOpenRouterClient } from '../lib/llm-client.js';
 import { createLlmFallbackService } from '../lib/llm-fallback.js';
 import { SECRETS } from '../lib/secrets.js';
+import { createSqliteSettingsStore } from '../lib/settings-store.js';
+import { createSqliteBranchContextStore } from '../lib/sqlite-branch-context-store.js';
+import { botSettings, branchNodes } from '../schema.js';
 
 const config = createConfig(SECRETS);
-const contextStore = new BranchContextStore(config);
+const contextStore = createSqliteBranchContextStore({
+  db,
+  table: branchNodes,
+  eq,
+  lt,
+  config,
+});
+const settingsStore = createSqliteSettingsStore({
+  db,
+  table: botSettings,
+  eq,
+});
 
 const openRouterClient = createOpenRouterClient({
   apiKey: config.openRouterApiKey,
@@ -23,6 +37,16 @@ const geminiClient = createGeminiClient({
   fetchFn: fetch,
 });
 
+const searchGeminiClient = config.geminiApiKey
+  ? createGeminiClient({
+      apiKey: config.geminiApiKey,
+      baseUrl: config.geminiBaseUrl,
+      model: config.geminiModel,
+      fetchFn: fetch,
+      enableGoogleSearch: true,
+    })
+  : null;
+
 const llmService = createLlmFallbackService({
   primaryClient: openRouterClient,
   fallbackClient: geminiClient,
@@ -32,7 +56,9 @@ const processor = createBotProcessor({
   api,
   config,
   contextStore,
+  settingsStore,
   llmService,
+  searchLlmClient: searchGeminiClient,
 });
 
 /**

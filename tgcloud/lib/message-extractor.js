@@ -168,6 +168,54 @@ export function stripBotMention(text, botUsername) {
     .trim();
 }
 
+/**
+ * Parses a leading Telegram slash command (`/cmd` or `/cmd@botUsername` with optional args).
+ * Returns `null` if the message does not start with a command or addresses a different bot.
+ */
+export function parseBotCommand(text, botUsername) {
+  if (typeof text !== 'string') {
+    return null;
+  }
+  const trimmed = text.trim();
+  const match = /^\/([a-z0-9_]+)(?:@([a-z0-9_]+))?(?:\s+([\s\S]*))?$/i.exec(trimmed);
+  if (!match) {
+    return null;
+  }
+
+  const command = match[1].toLowerCase();
+  const targetUsername = match[2] ? match[2].toLowerCase() : null;
+  const normalizedBot =
+    typeof botUsername === 'string' && botUsername.trim().length > 0
+      ? botUsername.trim().replace(/^@/, '').toLowerCase()
+      : '';
+
+  if (targetUsername !== null && (!normalizedBot || targetUsername !== normalizedBot)) {
+    return null;
+  }
+
+  return {
+    command,
+    addressedToBot: targetUsername !== null,
+    args: (match[3] ?? '').trim(),
+  };
+}
+
+/**
+ * Parses `/search ...`, `/search@bot ...`, or `@bot /search ...`.
+ */
+export function parseSearchCommand(text, botUsername) {
+  const direct = parseBotCommand(text, botUsername);
+  if (direct && direct.command === 'search') {
+    return direct;
+  }
+  const withoutMention = stripBotMention(text, botUsername);
+  const afterMention = parseBotCommand(withoutMention, botUsername);
+  if (afterMention && afterMention.command === 'search') {
+    return { ...afterMention, addressedToBot: true };
+  }
+  return null;
+}
+
 function findSplitIndex(text, maxLength) {
   const half = Math.floor(maxLength / 2);
   const newline = text.lastIndexOf('\n', maxLength);

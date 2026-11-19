@@ -82,6 +82,13 @@ describe('Telegram Serverless (tgcloud) runtime conventions', () => {
       }
     }
   });
+  it('does not declare foreign keys in tgcloud/schema.js (forbidden on Telegram Serverless)', () => {
+    const schemaSource = readFileSync(resolve(TGCLOUD_DIR, 'schema.js'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    assert.equal(/\.references\s*\(/.test(schemaSource), false);
+    assert.equal(/\bforeignKey\s*\(/.test(schemaSource), false);
+  });
 });
 
 describe('scripts/generate-secrets.mjs', () => {
@@ -105,16 +112,24 @@ describe('scripts/generate-secrets.mjs', () => {
       OPENROUTER_API: 'or-key',
       GEMINI_API: 'gm-key',
       ALLOWED_CHAT_IDS: '-1001, -1002, bad',
+      OWNER_ID: '42',
+      ADMIN_USER_IDS: '42, 777, -5, invalid',
       BOT_ID: '12345',
       BOT_USERNAME: '@my_bot',
+      BRANCH_MAX_DEPTH: '10',
+      BRANCH_MAX_CONTEXT_CHARS: '5000',
     });
 
     assert.deepEqual(secrets.allowedChatIds, [-1001, -1002]);
+    assert.deepEqual(secrets.adminUserIds, [42, 777]);
     assert.equal(secrets.botId, 12345);
     assert.equal(secrets.botUsername, 'my_bot');
+    assert.equal(secrets.branchMaxDepth, 10);
+    assert.equal(secrets.branchMaxContextChars, 5000);
 
     const rendered = renderSecretsModule(secrets);
     assert.match(rendered, /export const SECRETS = Object\.freeze\(/);
     assert.match(rendered, /"openRouterApiKey": "or-key"/);
+    assert.match(rendered, /"adminUserIds": \[\s*42,\s*777\s*\]/);
   });
 });

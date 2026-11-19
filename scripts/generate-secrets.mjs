@@ -62,8 +62,29 @@ export function buildSecretsObject(env) {
     .map((part) => Number(part))
     .filter((id) => Number.isSafeInteger(id));
 
+  const adminIdSet = new Set();
+  for (const rawList of [env.OWNER_ID, env.ADMIN_USER_IDS]) {
+    for (const part of String(rawList ?? '').split(',')) {
+      const trimmed = part.trim();
+      if (!trimmed) {
+        continue;
+      }
+      const id = Number(trimmed);
+      if (Number.isSafeInteger(id) && id > 0) {
+        adminIdSet.add(id);
+      }
+    }
+  }
+  const adminUserIds = [...adminIdSet];
+
   const rawBotId = String(env.BOT_ID ?? '').trim();
   const parsedBotId = rawBotId ? Number(rawBotId) : null;
+
+  const rawMaxDepth = String(env.BRANCH_MAX_DEPTH ?? '').trim();
+  const parsedMaxDepth = rawMaxDepth ? Number(rawMaxDepth) : null;
+
+  const rawMaxContextChars = String(env.BRANCH_MAX_CONTEXT_CHARS ?? '').trim();
+  const parsedMaxContextChars = rawMaxContextChars ? Number(rawMaxContextChars) : null;
 
   return {
     openRouterApiKey: String(env.OPENROUTER_API ?? '').trim(),
@@ -71,9 +92,16 @@ export function buildSecretsObject(env) {
     openRouterModel: String(env.OPENROUTER_MODEL ?? '').trim(),
     geminiModel: String(env.GEMINI_MODEL ?? '').trim(),
     allowedChatIds,
+    adminUserIds,
     systemPrompt: String(env.SYSTEM_PROMPT ?? '').trim(),
     botId: Number.isSafeInteger(parsedBotId) ? parsedBotId : null,
     botUsername: String(env.BOT_USERNAME ?? '').trim().replace(/^@/, ''),
+    branchMaxDepth:
+      Number.isInteger(parsedMaxDepth) && parsedMaxDepth > 0 ? parsedMaxDepth : null,
+    branchMaxContextChars:
+      Number.isInteger(parsedMaxContextChars) && parsedMaxContextChars > 0
+        ? parsedMaxContextChars
+        : null,
   };
 }
 

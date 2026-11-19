@@ -170,4 +170,150 @@ describe('trigger-evaluator', () => {
       TriggerDecision.IGNORE
     );
   });
+
+  it('triggers SEARCH on /search, /search@bot, and @bot /search in both DM and groups', () => {
+    const config = createConfig();
+    const group = { id: -100, type: 'supergroup' };
+    const dm = { id: 500, type: 'private' };
+
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 1, chat: group, from: human(10), text: '/search курс доллара' },
+        BOT_ID,
+        BOT_USERNAME,
+        config
+      ),
+      TriggerDecision.SEARCH
+    );
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 2, chat: group, from: human(10), text: '/search@Answering_Bot погода' },
+        BOT_ID,
+        BOT_USERNAME,
+        config
+      ),
+      TriggerDecision.SEARCH
+    );
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 3, chat: group, from: human(10), text: '@answering_bot /search новости' },
+        BOT_ID,
+        BOT_USERNAME,
+        config
+      ),
+      TriggerDecision.SEARCH
+    );
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 4, chat: dm, from: human(500), text: '/search свежие новости' },
+        BOT_ID,
+        BOT_USERNAME,
+        config
+      ),
+      TriggerDecision.SEARCH
+    );
+    // Command explicitly addressed to another bot in a group should be ignored
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 5, chat: group, from: human(10), text: '/search@other_bot новости' },
+        BOT_ID,
+        BOT_USERNAME,
+        config
+      ),
+      TriggerDecision.IGNORE
+    );
+  });
+
+  it('handles admin prompt commands and /id with Telegram user ID authorization', () => {
+    const config = createConfig({ ownerId: 42, allowedChatIds: [-100] });
+    const dmAdmin = { id: 42, type: 'private' };
+    const dmOther = { id: 99, type: 'private' };
+    const group = { id: -100, type: 'supergroup' };
+
+    // Admin in DM bypasses allowedChatIds for admin commands and /id
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 1, chat: dmAdmin, from: human(42), text: '/prompt' },
+        BOT_ID,
+        BOT_USERNAME,
+        config
+      ),
+      TriggerDecision.ADMIN_PROMPT
+    );
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 2, chat: dmAdmin, from: human(42), text: '/setprompt Будь вежливым.' },
+        BOT_ID,
+        BOT_USERNAME,
+        config
+      ),
+      TriggerDecision.ADMIN_SET_PROMPT
+    );
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 3, chat: dmAdmin, from: human(42), text: '/resetprompt' },
+        BOT_ID,
+        BOT_USERNAME,
+        config
+      ),
+      TriggerDecision.ADMIN_RESET_PROMPT
+    );
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 4, chat: dmAdmin, from: human(42), text: '/id' },
+        BOT_ID,
+        BOT_USERNAME,
+        config
+      ),
+      TriggerDecision.USER_ID
+    );
+
+    // Non-admin in open DM gets ADMIN_DENIED; non-admin in group is silently ignored
+    const openConfig = createConfig({ ownerId: 42 });
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 5, chat: dmOther, from: human(99), text: '/setprompt взлом' },
+        BOT_ID,
+        BOT_USERNAME,
+        openConfig
+      ),
+      TriggerDecision.ADMIN_DENIED
+    );
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 6, chat: group, from: human(99), text: '/setprompt взлом' },
+        BOT_ID,
+        BOT_USERNAME,
+        openConfig
+      ),
+      TriggerDecision.IGNORE
+    );
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 7, chat: dmOther, from: human(99), text: '/id' },
+        BOT_ID,
+        BOT_USERNAME,
+        openConfig
+      ),
+      TriggerDecision.USER_ID
+    );
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 8, chat: group, from: human(99), text: '/id' },
+        BOT_ID,
+        BOT_USERNAME,
+        openConfig
+      ),
+      TriggerDecision.IGNORE
+    );
+    assert.equal(
+      evaluateTrigger(
+        { message_id: 9, chat: group, from: human(99), text: '/id@answering_bot' },
+        BOT_ID,
+        BOT_USERNAME,
+        openConfig
+      ),
+      TriggerDecision.USER_ID
+    );
+  });
 });
