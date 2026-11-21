@@ -1,0 +1,129 @@
+name: CI/CD (Telegram Serverless)
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      skip_deploy:
+        description: 'Run tests only without deploying'
+        required: false
+        type: boolean
+        default: false
+      dry_run_migrate:
+        description: 'Preview DB migrations (--dry-run) instead of applying --safe'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test & Verify Runtime Rules
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check JavaScript syntax
+        run: find tgcloud scripts test -type f \( -name '*.js' -o -name '*.mjs' \) -exec node --check {} +
+
+      - name: Verify secrets generator script
+        run: node scripts/generate-secrets.mjs --check-only
+
+      - name: Run unit and convention tests
+        run: npm test
+
+  deploy:
+    name: Deploy to Telegram Serverless
+    needs: test
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+      (github.event_name == 'workflow_dispatch' && !inputs.skip_deploy)
+    runs-on: ubuntu-latest
+    concurrency:
+      group: tgcloud-production
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate required GitHub Secrets
+        env:
+          TGCLOUD_TOKEN: ${{ secrets.TGCLOUD_TOKEN }}
+          OPENROUTER_API: ${{ secrets.OPENROUTER_API }}
+          GEMINI_API: ${{ secrets.GEMINI_API }}
+        run: |
+          if [ -z "${TGCLOUD_TOKEN}" ]; then
+            echo "::error::Missing GitHub Secret TGCLOUD_TOKEN. Add it in Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          if [ -z "${OPENROUTER_API}" ] && [ -z "${GEMINI_API}" ]; then
+            echo "::error::Missing LLM API key. Set OPENROUTER_API and/or GEMINI_API in GitHub Secrets."
+            exit 1
+          fi
+
+      - name: Install @tgcloud/cli
+        run: npm install --no-audit --no-fund
+
+      - name: Generate tgcloud/lib/secrets.js
+        env:
+          OPENROUTER_API: ${{ secrets.OPENROUTER_API }}
+          GEMINI_API: ${{ secrets.GEMINI_API }}
+          OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL || vars.OPENROUTER_MODEL }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL || vars.GEMINI_MODEL }}
+          OWNER_ID: ${{ secrets.OWNER_ID || vars.OWNER_ID }}
+          ADMIN_USER_IDS: ${{ secrets.ADMIN_USER_IDS || vars.ADMIN_USER_IDS }}
+          ALLOWED_CHAT_IDS: ${{ secrets.ALLOWED_CHAT_IDS || vars.ALLOWED_CHAT_IDS }}
+          SYSTEM_PROMPT: ${{ secrets.SYSTEM_PROMPT || vars.SYSTEM_PROMPT }}
+          SECRETARY_PROMPT: ${{ secrets.SECRETARY_PROMPT || vars.SECRETARY_PROMPT }}
+          SECRETARY_ALLOW_ALL: ${{ secrets.SECRETARY_ALLOW_ALL || vars.SECRETARY_ALLOW_ALL }}
+          SECRETARY_MARK_AS_READ: ${{ secrets.SECRETARY_MARK_AS_READ || vars.SECRETARY_MARK_AS_READ }}
+          BOT_ID: ${{ secrets.BOT_ID || vars.BOT_ID }}
+          BOT_USERNAME: ${{ secrets.BOT_USERNAME || vars.BOT_USERNAME }}
+          BRANCH_MAX_DEPTH: ${{ secrets.BRANCH_MAX_DEPTH || vars.BRANCH_MAX_DEPTH }}
+          BRANCH_MAX_CONTEXT_CHARS: ${{ secrets.BRANCH_MAX_CONTEXT_CHARS || vars.BRANCH_MAX_CONTEXT_CHARS }}
+        run: node scripts/generate-secrets.mjs --strict
+
+      - name: Push modules to Telegram Serverless
+        env:
+          TGCLOUD_TOKEN: ${{ secrets.TGCLOUD_TOKEN }}
+        run: npx tgcloud push --force
+
+      - name: Apply safe database migrations
+        env:
+          TGCLOUD_TOKEN: ${{ secrets.TGCLOUD_TOKEN }}
+        run: |
+          if [ "${{ inputs.dry_run_migrate }}" = "true" ]; then
+            npx tgcloud migrate --dry-run
+          else
+            npx tgcloud migrate --safe
+          fi
+
+      - name: Sync Telegram webhook
+        env:
+          TGCLOUD_TOKEN: ${{ secrets.TGCLOUD_TOKEN }}
+        run: npx tgcloud webhook sync
+
+      - name: Check deployment status
+        env:
+          TGCLOUD_TOKEN: ${{ secrets.TGCLOUD_TOKEN }}
+        run: npx tgcloud status
