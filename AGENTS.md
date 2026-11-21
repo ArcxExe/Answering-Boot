@@ -10,8 +10,8 @@ This repository is a Telegram Serverless (`@tgcloud/cli` 0.2.0+) bot written in 
 - **Execution budget**: V8 isolate execution has a hard ~10.4s ceiling — keep LLM calls direct without retry backoff sleeps.
 - **Bot API token is built in**: `api` from `'sdk'` is pre-authenticated; never store `TELEGRAM_BOT_API` in code.
 - **External API keys & admin IDs**: `OPENROUTER_API`, `GEMINI_API`, `OWNER_ID`, and `ADMIN_USER_IDS` are read locally from `.env` by `scripts/generate-secrets.mjs` to generate git-ignored `tgcloud/lib/secrets.js` before `npx tgcloud push`. Never commit `.env`, `.tgcloud/`, or `tgcloud/lib/secrets.js`.
-- **Database (`sdk/db`)**: `tgcloud/schema.js` defines `branch_nodes` and `bot_settings` without foreign keys (`PRAGMA foreign_keys` is disabled on Telegram Serverless). Always `await` every `db.*` call. Schema changes require `npm run migrate` (`npx tgcloud migrate`) after `npm run deploy`.
-- **Handlers are flat**: `tgcloud/handlers/message.js` exports `default async function (message, ctx)` where `message` is already unwrapped `update.message`.
+- **Database (`sdk/db`)**: `tgcloud/schema.js` defines `branch_nodes`, `bot_settings`, `business_connections`, `business_messages`, and `business_chat_states` without foreign keys (`PRAGMA foreign_keys` is disabled on Telegram Serverless). Always `await` every `db.*` call. Schema changes require `npm run migrate` (`npx tgcloud migrate`) after `npm run deploy`.
+- **Handlers are flat**: `tgcloud/handlers/*.js` (`message.js`, `callback_query.js`, `business_connection.js`, `business_message.js`, `edited_business_message.js`, `deleted_business_messages.js`) export `default async function (payload, ctx)` where `payload` is already unwrapped from `update`.
 
 ## Development Commands
 

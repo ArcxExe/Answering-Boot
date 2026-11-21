@@ -37,7 +37,8 @@ function buildStartGreeting(botUsername) {
   return (
     'Привет! Добавьте меня в группу и отвечайте на пересланные или обычные сообщения с упоминанием ' +
     `${handle} — я отвечу кратко и по делу.\n` +
-    'Для поиска актуальной информации в интернете используйте команду /search <запрос>.'
+    'Для поиска актуальной информации в интернете используйте команду /search <запрос>.\n' +
+    'Также поддерживается режим секретаря Telegram (/secretary).'
   );
 }
 
@@ -52,6 +53,7 @@ export function createBotProcessor({
   settingsStore = null,
   llmService,
   searchLlmClient = null,
+  secretaryProcessor = null,
   nowFn = () => Date.now(),
   logger = console,
 }) {
@@ -238,6 +240,13 @@ export function createBotProcessor({
 
       const chatId = incoming.chat.id;
       if (decision === TriggerDecision.PRIVATE_START) {
+        const rawText = extractText(incoming) ?? '';
+        const parsed = parseBotCommand(rawText, botUsername);
+        const bizMatch = /^bizChat(-?\d+)$/i.exec(parsed?.args ?? '');
+        if (bizMatch && secretaryProcessor) {
+          await secretaryProcessor.handleManageChatDeepLink(incoming, Number(bizMatch[1]));
+          return;
+        }
         await sendReply(chatId, incoming.message_id, buildStartGreeting(botUsername));
         return;
       }
@@ -259,6 +268,20 @@ export function createBotProcessor({
         decision === TriggerDecision.ADMIN_RESET_PROMPT
       ) {
         await handleAdminCommand(decision, incoming, botUsername);
+        return;
+      }
+
+      if (
+        decision === TriggerDecision.SECRETARY_STATUS ||
+        decision === TriggerDecision.SECRETARY_PROMPT ||
+        decision === TriggerDecision.SECRETARY_SET_PROMPT ||
+        decision === TriggerDecision.SECRETARY_RESET_PROMPT
+      ) {
+        if (!secretaryProcessor) {
+          await sendReply(chatId, incoming.message_id, 'Режим секретаря не подключён.');
+          return;
+        }
+        await secretaryProcessor.handleOwnerCommand(decision, incoming, botUsername);
         return;
       }
 

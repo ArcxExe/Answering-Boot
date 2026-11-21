@@ -156,4 +156,22 @@ describe('settings-store', () => {
     await store.resetSystemPrompt();
     assert.equal(await store.getSystemPrompt(), null);
   });
+
+  it('stores per-user secretary prompts independently from global system_prompt', async () => {
+    const sharedDb = createMockSettingsDb();
+    const store = createSqliteSettingsStore({ db: sharedDb, table: mockTable, eq });
+
+    await store.setSystemPrompt('Групповой промпт');
+    await store.setSecretaryPrompt(42, 'Секретарь для 42');
+    await store.setSecretaryPrompt(99, 'Секретарь для 99');
+
+    assert.equal(await store.getSystemPrompt(), 'Групповой промпт');
+    assert.equal(await store.getSecretaryPrompt(42), 'Секретарь для 42');
+    assert.equal(await store.getSecretaryPrompt(99), 'Секретарь для 99');
+
+    await store.resetSecretaryPrompt(42);
+    assert.equal(await store.getSecretaryPrompt(42), null);
+    assert.equal(await store.getSecretaryPrompt(99), 'Секретарь для 99');
+    assert.equal(await store.getSystemPrompt(), 'Групповой промпт');
+  });
 });

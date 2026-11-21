@@ -16,6 +16,10 @@ export const TriggerDecision = Object.freeze({
   ADMIN_SET_PROMPT: 'ADMIN_SET_PROMPT',
   ADMIN_RESET_PROMPT: 'ADMIN_RESET_PROMPT',
   ADMIN_DENIED: 'ADMIN_DENIED',
+  SECRETARY_STATUS: 'SECRETARY_STATUS',
+  SECRETARY_PROMPT: 'SECRETARY_PROMPT',
+  SECRETARY_SET_PROMPT: 'SECRETARY_SET_PROMPT',
+  SECRETARY_RESET_PROMPT: 'SECRETARY_RESET_PROMPT',
   SEARCH: 'SEARCH',
   ANSWER: 'ANSWER',
 });
@@ -24,6 +28,13 @@ const ADMIN_COMMANDS = new Map([
   ['prompt', TriggerDecision.ADMIN_PROMPT],
   ['setprompt', TriggerDecision.ADMIN_SET_PROMPT],
   ['resetprompt', TriggerDecision.ADMIN_RESET_PROMPT],
+]);
+
+const SECRETARY_COMMANDS = new Map([
+  ['secretary', TriggerDecision.SECRETARY_STATUS],
+  ['secretary_prompt', TriggerDecision.SECRETARY_PROMPT],
+  ['set_secretary_prompt', TriggerDecision.SECRETARY_SET_PROMPT],
+  ['reset_secretary_prompt', TriggerDecision.SECRETARY_RESET_PROMPT],
 ]);
 
 function isPrivateChat(chat) {
@@ -73,15 +84,24 @@ export function evaluateTrigger(message, botId, botUsername, config) {
   const parsedCommand = parseBotCommand(text, botUsername);
   const admin = isAdminUser(sender, config);
 
-  // Allow configured admins to manage prompt settings in private chat even if ALLOWED_CHAT_IDS restricts groups
-  const isPrivateAdminCommand =
+  const isBizManageStart =
     inPrivate &&
-    admin &&
     parsedCommand !== null &&
-    (ADMIN_COMMANDS.has(parsedCommand.command) || parsedCommand.command === 'id');
+    parsedCommand.command === 'start' &&
+    /^bizChat-?\d+$/i.test(parsedCommand.args);
+
+  // Allow configured admins to manage prompt/secretary settings in private chat even if ALLOWED_CHAT_IDS restricts groups
+  const isPrivateControlCommand =
+    inPrivate &&
+    parsedCommand !== null &&
+    (isBizManageStart ||
+      (admin &&
+        (ADMIN_COMMANDS.has(parsedCommand.command) ||
+          SECRETARY_COMMANDS.has(parsedCommand.command) ||
+          parsedCommand.command === 'id')));
 
   const allowed = config?.allowedChatIds;
-  if (!isPrivateAdminCommand && allowed && allowed.size > 0 && !allowed.has(message.chat.id)) {
+  if (!isPrivateControlCommand && allowed && allowed.size > 0 && !allowed.has(message.chat.id)) {
     return TriggerDecision.IGNORE;
   }
 
@@ -102,6 +122,11 @@ export function evaluateTrigger(message, botId, botUsername, config) {
         return adminDecision;
       }
       return inPrivate ? TriggerDecision.ADMIN_DENIED : TriggerDecision.IGNORE;
+    }
+
+    const secretaryDecision = SECRETARY_COMMANDS.get(parsedCommand.command);
+    if (secretaryDecision) {
+      return inPrivate ? secretaryDecision : TriggerDecision.IGNORE;
     }
   }
 

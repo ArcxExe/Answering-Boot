@@ -86,6 +86,13 @@ export function buildSecretsObject(env) {
   const rawMaxContextChars = String(env.BRANCH_MAX_CONTEXT_CHARS ?? '').trim();
   const parsedMaxContextChars = rawMaxContextChars ? Number(rawMaxContextChars) : null;
 
+  const rawSecretaryAllowAll = String(env.SECRETARY_ALLOW_ALL ?? '').trim().toLowerCase();
+  const secretaryAllowAll = rawSecretaryAllowAll === 'true' || rawSecretaryAllowAll === '1';
+
+  const rawSecretaryMarkAsRead = String(env.SECRETARY_MARK_AS_READ ?? '').trim().toLowerCase();
+  const secretaryMarkAsRead =
+    rawSecretaryMarkAsRead === 'false' || rawSecretaryMarkAsRead === '0' ? false : true;
+
   return {
     openRouterApiKey: String(env.OPENROUTER_API ?? '').trim(),
     geminiApiKey: String(env.GEMINI_API ?? '').trim(),
@@ -94,6 +101,9 @@ export function buildSecretsObject(env) {
     allowedChatIds,
     adminUserIds,
     systemPrompt: String(env.SYSTEM_PROMPT ?? '').trim(),
+    secretarySystemPrompt: String(env.SECRETARY_PROMPT ?? '').trim(),
+    secretaryAllowAll,
+    secretaryMarkAsRead,
     botId: Number.isSafeInteger(parsedBotId) ? parsedBotId : null,
     botUsername: String(env.BOT_USERNAME ?? '').trim().replace(/^@/, ''),
     branchMaxDepth:

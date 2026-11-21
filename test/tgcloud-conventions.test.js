@@ -30,9 +30,14 @@ function collectJsFiles(dir) {
 describe('Telegram Serverless (tgcloud) runtime conventions', () => {
   const jsFiles = collectJsFiles(TGCLOUD_DIR);
 
-  it('has handlers/message.js and schema.js in tgcloud/', () => {
+  it('has all required update handlers and schema.js in tgcloud/', () => {
     const relPaths = jsFiles.map((f) => relative(TGCLOUD_DIR, f));
     assert.ok(relPaths.includes('handlers/message.js'));
+    assert.ok(relPaths.includes('handlers/callback_query.js'));
+    assert.ok(relPaths.includes('handlers/business_connection.js'));
+    assert.ok(relPaths.includes('handlers/business_message.js'));
+    assert.ok(relPaths.includes('handlers/edited_business_message.js'));
+    assert.ok(relPaths.includes('handlers/deleted_business_messages.js'));
     assert.ok(relPaths.includes('schema.js'));
   });
 
@@ -114,6 +119,9 @@ describe('scripts/generate-secrets.mjs', () => {
       ALLOWED_CHAT_IDS: '-1001, -1002, bad',
       OWNER_ID: '42',
       ADMIN_USER_IDS: '42, 777, -5, invalid',
+      SECRETARY_PROMPT: 'Вежливый секретарь',
+      SECRETARY_ALLOW_ALL: 'true',
+      SECRETARY_MARK_AS_READ: 'false',
       BOT_ID: '12345',
       BOT_USERNAME: '@my_bot',
       BRANCH_MAX_DEPTH: '10',
@@ -122,6 +130,9 @@ describe('scripts/generate-secrets.mjs', () => {
 
     assert.deepEqual(secrets.allowedChatIds, [-1001, -1002]);
     assert.deepEqual(secrets.adminUserIds, [42, 777]);
+    assert.equal(secrets.secretarySystemPrompt, 'Вежливый секретарь');
+    assert.equal(secrets.secretaryAllowAll, true);
+    assert.equal(secrets.secretaryMarkAsRead, false);
     assert.equal(secrets.botId, 12345);
     assert.equal(secrets.botUsername, 'my_bot');
     assert.equal(secrets.branchMaxDepth, 10);
@@ -131,5 +142,6 @@ describe('scripts/generate-secrets.mjs', () => {
     assert.match(rendered, /export const SECRETS = Object\.freeze\(/);
     assert.match(rendered, /"openRouterApiKey": "or-key"/);
     assert.match(rendered, /"adminUserIds": \[\s*42,\s*777\s*\]/);
+    assert.match(rendered, /"secretaryAllowAll": true/);
   });
 });

@@ -10,6 +10,13 @@ export const DEFAULT_SYSTEM_PROMPT =
   'не читай мораль и не проси общаться вежливо; отвечай так же резко, дерзко и с жёстким ' +
   'сарказмом в тон собеседнику, зеркаля его подачу коротким ответом.';
 
+export const DEFAULT_SECRETARY_PROMPT =
+  'Ты вежливый, аккуратный и лаконичный AI-секретарь в личных сообщениях Telegram. ' +
+  'Ты отвечаешь собеседникам от имени владельца аккаунта, пока он занят. ' +
+  'Отвечай кратко, по делу и на языке собеседника. Не выдумывай факты, обещания, цены или договорённости, ' +
+  'которых нет в переписке: если вопрос требует личного решения владельца, коротко уточни детали и сообщи, ' +
+  'что передашь сообщение владельцу.';
+
 export const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const DEFAULT_OPENROUTER_MODEL = 'deepseek/deepseek-chat';
 export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
@@ -64,6 +71,12 @@ export function createConfig(overrides = {}) {
       ? overrides.systemPrompt.trim()
       : DEFAULT_SYSTEM_PROMPT;
 
+  const secretarySystemPrompt =
+    typeof overrides.secretarySystemPrompt === 'string' &&
+    overrides.secretarySystemPrompt.trim().length > 0
+      ? overrides.secretarySystemPrompt.trim()
+      : DEFAULT_SECRETARY_PROMPT;
+
   const openRouterModel =
     typeof overrides.openRouterModel === 'string' && overrides.openRouterModel.trim().length > 0
       ? overrides.openRouterModel.trim()
@@ -95,16 +108,28 @@ export function createConfig(overrides = {}) {
       ? overrides.botUsername.trim().replace(/^@/, '')
       : '';
 
+  const branchMaxDepth = normalizePositiveInt(overrides.branchMaxDepth, DEFAULT_BRANCH_MAX_DEPTH);
+  const branchMaxContextChars = normalizePositiveInt(
+    overrides.branchMaxContextChars,
+    DEFAULT_BRANCH_MAX_CONTEXT_CHARS
+  );
+
   return Object.freeze({
     enabled: overrides.enabled !== false,
     allowedChatIds: normalizeIdSet(overrides.allowedChatIds),
     adminUserIds: normalizeAdminUserIds(overrides.adminUserIds, overrides.ownerId),
     systemPrompt,
-    branchMaxDepth: normalizePositiveInt(overrides.branchMaxDepth, DEFAULT_BRANCH_MAX_DEPTH),
-    branchMaxContextChars: normalizePositiveInt(
-      overrides.branchMaxContextChars,
-      DEFAULT_BRANCH_MAX_CONTEXT_CHARS
+    secretaryEnabled: overrides.secretaryEnabled !== false,
+    secretaryAllowAll: overrides.secretaryAllowAll === true,
+    secretaryMarkAsRead: overrides.secretaryMarkAsRead !== false,
+    secretarySystemPrompt,
+    secretaryMaxHistory: normalizePositiveInt(overrides.secretaryMaxHistory, branchMaxDepth),
+    secretaryMaxContextChars: normalizePositiveInt(
+      overrides.secretaryMaxContextChars,
+      branchMaxContextChars
     ),
+    branchMaxDepth,
+    branchMaxContextChars,
     branchCacheMaxSize: normalizePositiveInt(
       overrides.branchCacheMaxSize,
       DEFAULT_BRANCH_CACHE_MAX_SIZE
