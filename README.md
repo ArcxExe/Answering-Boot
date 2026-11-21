@@ -115,3 +115,30 @@ npx tgcloud run handlers/message '{ message_id: 1, chat: { id: 1, type: "private
 ```bash
 npm test
 ```
+
+## CI/CD через GitHub Actions
+
+В репозитории настроен workflow [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml):
+
+1. **На каждый Pull Request и Push в `master`** (job `test`):
+   - проверяет синтаксис всех `.js`/`.mjs` файлов (`node --check`);
+   - валидирует генератор секретов (`node scripts/generate-secrets.mjs --check-only`);
+   - запускает все тесты и проверки правил Telegram Serverless (`npm test`).
+2. **При Push/Merge в `master` или ручном запуске `workflow_dispatch`** (job `deploy`):
+   - генерирует `tgcloud/lib/secrets.js` из GitHub Secrets/Variables;
+   - выкладывает код (`npx tgcloud push --force`);
+   - применяет безопасные миграции БД (`npx tgcloud migrate --safe`);
+   - синхронизирует вебхук (`npx tgcloud webhook sync`).
+
+### Какие секреты добавить на GitHub
+
+Откройте репозиторий на GitHub → **Settings → Secrets and variables → Actions** и добавьте:
+
+- **Repository secrets (обязательные):**
+  - `TGCLOUD_TOKEN` — CLI-токен из `@BotFather → Serverless → CLI Access` вида `app<id>:<secret>`
+  - `OPENROUTER_API` — ключ OpenRouter (и/или `GEMINI_API`)
+  - `GEMINI_API` — ключ Google Gemini (нужен для fallback и `/search`)
+- **Repository secrets или variables (опционально):**
+  - `OWNER_ID` — ваш Telegram User ID (для `/prompt`, `/setprompt`, `/resetprompt` и режима секретаря)
+  - `ADMIN_USER_IDS`, `ALLOWED_CHAT_IDS`, `OPENROUTER_MODEL`, `GEMINI_MODEL`, `SYSTEM_PROMPT`, `SECRETARY_PROMPT`, `SECRETARY_ALLOW_ALL`, `SECRETARY_MARK_AS_READ`, `BOT_ID`, `BOT_USERNAME`, `BRANCH_MAX_DEPTH`, `BRANCH_MAX_CONTEXT_CHARS`
+
