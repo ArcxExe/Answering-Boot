@@ -4,6 +4,11 @@
  */
 
 export const SYSTEM_PROMPT_KEY = 'system_prompt';
+export const SECRETARY_PROMPT_KEY_PREFIX = 'secretary_prompt:';
+
+export function makeSecretaryPromptKey(userId) {
+  return `${SECRETARY_PROMPT_KEY_PREFIX}${userId}`;
+}
 
 /**
  * Simple in-memory settings store useful for unit tests and local fallback.
@@ -14,25 +19,32 @@ export function createInMemorySettingsStore(initialSystemPrompt = null) {
     values.set(SYSTEM_PROMPT_KEY, initialSystemPrompt.trim());
   }
 
+  async function getValue(key) {
+    const value = values.get(key);
+    return typeof value === 'string' && value.trim().length > 0 ? value : null;
+  }
+
+  async function setValue(key, prompt) {
+    const normalized = String(prompt ?? '').trim();
+    if (normalized.length === 0) {
+      throw new RangeError('System prompt must not be empty');
+    }
+    values.set(key, normalized);
+    return { persisted: true };
+  }
+
+  async function resetValue(key) {
+    values.delete(key);
+    return { persisted: true };
+  }
+
   return {
-    async getSystemPrompt() {
-      const value = values.get(SYSTEM_PROMPT_KEY);
-      return typeof value === 'string' && value.trim().length > 0 ? value : null;
-    },
-
-    async setSystemPrompt(prompt) {
-      const normalized = String(prompt ?? '').trim();
-      if (normalized.length === 0) {
-        throw new RangeError('System prompt must not be empty');
-      }
-      values.set(SYSTEM_PROMPT_KEY, normalized);
-      return { persisted: true };
-    },
-
-    async resetSystemPrompt() {
-      values.delete(SYSTEM_PROMPT_KEY);
-      return { persisted: true };
-    },
+    getSystemPrompt: () => getValue(SYSTEM_PROMPT_KEY),
+    setSystemPrompt: (prompt) => setValue(SYSTEM_PROMPT_KEY, prompt),
+    resetSystemPrompt: () => resetValue(SYSTEM_PROMPT_KEY),
+    getSecretaryPrompt: (userId) => getValue(makeSecretaryPromptKey(userId)),
+    setSecretaryPrompt: (userId, prompt) => setValue(makeSecretaryPromptKey(userId), prompt),
+    resetSecretaryPrompt: (userId) => resetValue(makeSecretaryPromptKey(userId)),
   };
 }
 
@@ -61,67 +73,73 @@ export function createSqliteSettingsStore({
     );
   }
 
-  return {
-    async getSystemPrompt() {
-      try {
-        const row = await db
-          .select()
-          .from(table)
-          .where(eq(table.key, SYSTEM_PROMPT_KEY))
-          .get();
-        if (row && typeof row.value === 'string' && row.value.trim().length > 0) {
-          return row.value.trim();
-        }
-        return null;
-      } catch (err) {
-        warnFallback('getSystemPrompt', err);
-        const value = fallback.get(SYSTEM_PROMPT_KEY);
-        return typeof value === 'string' && value.trim().length > 0 ? value : null;
+  async function getByKey(key, opName) {
+    try {
+      const row = await db.select().from(table).where(eq(table.key, key)).get();
+      if (row && typeof row.value === 'string' && row.value.trim().length > 0) {
+        return row.value.trim();
       }
-    },
+      return null;
+    } catch (err) {
+      warnFallback(opName, err);
+      const value = fallback.get(key);
+      return typeof value === 'string' && value.trim().length > 0 ? value : null;
+    }
+  }
 
-    async setSystemPrompt(prompt) {
-      const normalized = String(prompt ?? '').trim();
-      if (normalized.length === 0) {
-        throw new RangeError('System prompt must not be empty');
-      }
+  async function setByKey(key, prompt, opName) {
+    const normalized = String(prompt ?? '').trim();
+    if (normalized.length === 0) {
+      throw new RangeError('System prompt must not be empty');
+    }
 
-      const updatedAt = nowFn();
-      fallback.set(SYSTEM_PROMPT_KEY, normalized);
+    const updatedAt = nowFn();
+    fallback.set(key, normalized);
 
-      try {
-        await db
-          .insert(table)
-          .values({
-            key: SYSTEM_PROMPT_KEY,
+    try {
+      await db
+        .insert(table)
+        .values({
+          key,
+          value: normalized,
+          updatedAt,
+        })
+        .onConflictDoUpdate({
+          target: table.key,
+          set: {
             value: normalized,
             updatedAt,
-          })
-          .onConflictDoUpdate({
-            target: table.key,
-            set: {
-              value: normalized,
-              updatedAt,
-            },
-          })
-          .run();
-        return { persisted: true };
-      } catch (err) {
-        warnFallback('setSystemPrompt', err);
-        return { persisted: false };
-      }
-    },
+          },
+        })
+        .run();
+      return { persisted: true };
+    } catch (err) {
+      warnFallback(opName, err);
+      return { persisted: false };
+    }
+  }
 
-    async resetSystemPrompt() {
-      fallback.delete(SYSTEM_PROMPT_KEY);
+  async function deleteByKey(key, opName) {
+    fallback.delete(key);
 
-      try {
-        await db.delete(table).where(eq(table.key, SYSTEM_PROMPT_KEY)).run();
-        return { persisted: true };
-      } catch (err) {
-        warnFallback('resetSystemPrompt', err);
-        return { persisted: false };
-      }
-    },
+    try {
+      await db.delete(table).where(eq(table.key, key)).run();
+      return { persisted: true };
+    } catch (err) {
+      warnFallback(opName, err);
+      return { persisted: false };
+    }
+  }
+
+  return {
+    getSystemPrompt: () => getByKey(SYSTEM_PROMPT_KEY, 'getSystemPrompt'),
+    setSystemPrompt: (prompt) => setByKey(SYSTEM_PROMPT_KEY, prompt, 'setSystemPrompt'),
+    resetSystemPrompt: () => deleteByKey(SYSTEM_PROMPT_KEY, 'resetSystemPrompt'),
+    getSecretaryPrompt: (userId) =>
+      getByKey(makeSecretaryPromptKey(userId), 'getSecretaryPrompt'),
+    setSecretaryPrompt: (userId, prompt) =>
+      setByKey(makeSecretaryPromptKey(userId), prompt, 'setSecretaryPrompt'),
+    resetSecretaryPrompt: (userId) =>
+      deleteByKey(makeSecretaryPromptKey(userId), 'resetSecretaryPrompt'),
   };
 }
